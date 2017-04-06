@@ -74,24 +74,25 @@ class Repository:
     '''
     This repository class contains a set of students and a set of instructors
     '''
-    def __init__(self, students, instructors):
-        self.students = students
-        self.instructors = instructors
+    def __init__(self):
+        self.students = dict() #key: CWID value: Student
+        self.instructors = dict() #key: CWID value: Instructor
+        self.remaining_courses = dict() #key: CWID of student  value: list of Courses remaining
 
     def get_students(self):
         '''
         returns students as a list
         '''
-        return list(self.students)
+        return list(self.students.values())
 
     def get_instructors(self):
         '''
         returns instructors as a list
         '''
-        return list(self.instructors)
+        return list(self.instructors.values())
 
 def read_students():
-    students = []
+    students = dict()
     try:
         fp = open('students.txt')
     except FileNotFoundError as message:
@@ -101,18 +102,19 @@ def read_students():
         with fp:
 
             for line in fp:
-                student_info = line.split()
+                student_info = line.strip().split()
                 if(len(student_info) != 4):
                     print('corrupted or invalid formatted students.txt file... ending program')
                     sys.exit()
 
                 student_info[1] = student_info[1][:-1]
-                students.append(Student(student_info[0], student_info[1], student_info[2], student_info[3], defaultdict(str)))
+                students[student_info[0]] = Student(student_info[0], student_info[1], student_info[2], student_info[3], defaultdict(str))
+
     return students
 
 
 def read_instructors():
-    instructors = []
+    instructors = dict()
     try:
         fp = open('instructors.txt')
     except FileNotFoundError as message:
@@ -122,19 +124,18 @@ def read_instructors():
         with fp:
 
             for line in fp:
-                instructor_info = line.split()
+                instructor_info = line.strip().split()
                 if(len(instructor_info) != 4):
                     print('corrupted or invalid formatted instructors.txt file... ending program')
                     sys.exit()
 
                 instructor_info[1] = instructor_info[1][:-1]
-                instructors.append(Instructor(instructor_info[0], instructor_info[1], instructor_info[2], instructor_info[3], defaultdict(int)))
+                instructors[instructor_info[0]] = Instructor(instructor_info[0], instructor_info[1], instructor_info[2], instructor_info[3], defaultdict(int))
+
     return instructors
 
 
 def read_grades(students, instructors):
-    student_processor = []
-    instructor_processor = []
 
     try:
         fp = open('grades.txt')
@@ -145,33 +146,70 @@ def read_grades(students, instructors):
         with fp:
 
             for line in fp:
-                grade_info = line.split()
+                grade_info = line.strip().split()
                 if(len(grade_info) != 5):
                     print('corrupted or invalid formatted grades.txt file... ending program')
                     sys.exit()
 
-                student = next((s for s in students if s.cwid == grade_info[0]), 'none')
-                if(student == 'none'):
-                    print('Student ', grade_info[0], 'not found')
+                try:
+                    students[grade_info[0]]
+                except KeyError as message:
+                    print(message)
+                    print('Student', grade_info[0], 'not found')
                     continue
 
+                student = students[grade_info[0]]
                 course = Course(grade_info[1], grade_info[2])
                 grade = grade_info[3]
 
-                instructor = next((i for i in instructors if i.cwid == grade_info[4]), 'none')
-                if(instructor == 'none'):
+                try:
+                    instructors[grade_info[4]]
+                except KeyError as message:
+                    print(message)
                     print('Instructor', grade_info[4], 'not found')
                     continue
 
+                instructor = instructors[grade_info[4]]
                 student.add_grade_information(str(course), grade_info[3])
                 instructor.add_student_information(str(course))   
-                student_processor.append(student) 
-                instructor_processor.append(instructor)
 
-    student_set = set(student_processor)
-    instructor_set = set(instructor_processor)
-    
-    return Repository(student_set, instructor_set)
+    repository = Repository()
+    repository.students = students
+    repository.instructors = instructors
+    return repository
+
+def read_majors():
+    courses = dict() #key: str(Course) value: Area of Study
+    try:
+        fp = open('majors.txt')
+    except FileNotFoundError as message:
+        print(message)
+        print('Majors info not in current directory or is not a text file')
+    else:
+        with fp:
+
+            for line in fp:
+                major_info = line.strip().split()
+                if(len(major_info) != 3):
+                    print('corrupted or invalid formatted majors.txt file... ending program')
+                    sys.exit()    
+                
+                course = Course(major_info[1], major_info[2])
+                courses[str(course)] = major_info[0]
+
+    return courses
+
+def get_remaining_courses(students, courses, repository):
+    remaining_courses = dict() #key: CWID of student  value: list of Courses remaining
+
+    for s in students:
+        courses_by_major = [c for c in courses.keys() if s.area_of_study == courses[c]]
+        remaining = [si for si in courses_by_major if si not in s.information]
+        remaining_courses[s.cwid] = sorted(remaining)
+
+    repository.remaining_courses = remaining_courses
+    return repository
+
 
 
 def main():
@@ -182,10 +220,13 @@ def main():
     students_with_info =repository.get_students()
     instructors_with_info = repository.get_instructors()
 
+    courses = read_majors()
+    repository = get_remaining_courses(students_with_info, courses, repository)
+
     table_students = prettytable.PrettyTable()
-    table_students.field_names = ["CWID", "Name", "Completed Courses"]
+    table_students.field_names = ["CWID", "Name", "Major","Completed Courses", "Remaining Courses"]
     for s in students_with_info:
-        table_students.add_row([s.cwid, str(s), [si for si in s.information]])
+        table_students.add_row([s.cwid, str(s), s.area_of_study, [si for si in s.information], repository.remaining_courses[s.cwid]])
 
     table_instructor = prettytable.PrettyTable()
     table_instructor.field_names = ["CWID", "Name", "Dept", "Course", "Students"]
